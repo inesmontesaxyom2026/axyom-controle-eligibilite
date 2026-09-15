@@ -1,0 +1,277 @@
+// Schéma de données — Outil de contrôle interne de l'éligibilité (Axyom)
+// Voir ARCHITECTURE.md pour une explication en français de chaque entité.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  CONSULTANT
+}
+
+enum TypeOrganisation {
+  SIEGE
+  ANTENNE_LOCALE
+  PARTENAIRE
+}
+
+enum NiveauService {
+  NIVEAU_1
+  NIVEAU_2
+  NIVEAU_3
+}
+
+enum StatutConformite {
+  EN_COURS
+  CONFORME
+  NON_CONFORME
+  A_DISCUTER
+}
+
+enum StatutExtraction {
+  EN_ATTENTE
+  REUSSIE
+  ECHEC
+}
+
+enum TypeRegle {
+  LEGALE
+  CONTRACTUELLE
+  PROCEDURE
+}
+
+enum TypeAnomalie {
+  LEGAL
+  CONTRACTUEL
+  PROCEDURE
+  FORMATAGE
+  INFO_MANQUANTE_ESSENTIELLE
+  INFO_MANQUANTE
+  INFO_INCOHERENTE
+  PIECE_MANQUANTE
+  A_DISCUTER
+}
+
+enum StatutValidation {
+  EN_ATTENTE
+  VALIDEE
+  REJETEE
+  CORRIGEE
+}
+
+enum StatutRapport {
+  BROUILLON
+  VALIDE
+  ENVOYE
+}
+
+model User {
+  id              String              @id @default(cuid())
+  nom             String
+  email           String              @unique
+  motDePasseHash  String
+  role            Role                @default(CONSULTANT)
+  actif           Boolean             @default(true)
+  creeLe          DateTime            @default(now())
+  assignations    DossierAssignment[]
+  reglesCreees    Regle[]             @relation("RegleCreePar")
+  rapportsGeneres Rapport[]           @relation("RapportGenerePar")
+
+  @@map("users")
+}
+
+model Client {
+  id       String    @id @default(cuid())
+  nom      String
+  creeLe   DateTime  @default(now())
+  dossiers Dossier[]
+
+  @@map("clients")
+}
+
+model Bailleur {
+  id      String   @id @default(cuid())
+  nom     String   @unique
+  sigle   String?
+  profils Profil[]
+
+  @@map("bailleurs")
+}
+
+// Un Profil = (Bailleur x Pays [x Type d'organisation]) — voir section 7 du prompt de cadrage.
+model Profil {
+  id               String            @id @default(cuid())
+  bailleurId       String
+  bailleur         Bailleur          @relation(fields: [bailleurId], references: [id])
+  pays             String
+  typeOrganisation TypeOrganisation?
+  libelle          String
+  creeLe           DateTime          @default(now())
+  projets          Projet[]
+  regles           Regle[]
+
+  @@unique([bailleurId, pays, typeOrganisation])
+  @@map("profils")
+}
+
+model Dossier {
+  id           String              @id @default(cuid())
+  nom          String
+  clientId     String
+  client       Client              @relation(fields: [clientId], references: [id])
+  creeLe       DateTime            @default(now())
+  projets      Projet[]
+  assignations DossierAssignment[]
+  regles       Regle[]
+  rapports     Rapport[]
+  template     RapportTemplate?
+
+  @@map("dossiers")
+}
+
+// Table de jonction : accès d'un consultant à un dossier (section 3 : accès par dossier assigné).
+model DossierAssignment {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  dossierId String
+  dossier   Dossier  @relation(fields: [dossierId], references: [id])
+  assigneLe DateTime @default(now())
+
+  @@unique([userId, dossierId])
+  @@map("dossier_assignments")
+}
+
+model Projet {
+  id                      String           @id @default(cuid())
+  nom                     String
+  dossierId               String
+  dossier                 Dossier          @relation(fields: [dossierId], references: [id])
+  profilId                String
+  profil                  Profil           @relation(fields: [profilId], references: [id])
+  departement             String?
+  typeDepense             String?
+  niveauService           NiveauService    @default(NIVEAU_1)
+  statutConformite        StatutConformite @default(EN_COURS)
+  suiviBudgetaire         Decimal?         @db.Decimal(14, 2)
+  soldeAvancesPartenaires Decimal?         @db.Decimal(14, 2)
+  creeLe                  DateTime         @default(now())
+  pieces                  Piece[]
+  regles                  Regle[]
+  rapports                Rapport[]
+  anomalies               Anomalie[]
+
+  @@map("projets")
+}
+
+// Une pièce justificative individuelle (facture, contrat, note de frais...).
+model Piece {
+  id                 String           @id @default(cuid())
+  projetId           String
+  projet             Projet           @relation(fields: [projetId], references: [id])
+  nomFichierOriginal String
+  storageKey         String // clé/chemin dans le StorageProvider (voir src/lib/storage)
+  mimeType           String
+  tailleOctets       Int
+  statutExtraction   StatutExtraction @default(EN_ATTENTE)
+  donneesExtraites   Json? // sortie structurée du ExtractionProvider
+  erreurExtraction   String?
+  deposeLe           DateTime         @default(now())
+  anomalies          Anomalie[]
+
+  @@map("pieces")
+}
+
+// Règle générale (rattachée à un Profil) ou spécifique (rattachée à un Dossier ou un Projet).
+// Versionnée : une édition crée une nouvelle ligne, l'ancienne reste consultable (dateFin renseignée).
+model Regle {
+  id                  String     @id @default(cuid())
+  profilId            String?
+  profil              Profil?    @relation(fields: [profilId], references: [id])
+  dossierId           String?
+  dossier             Dossier?   @relation(fields: [dossierId], references: [id])
+  projetId            String?
+  projet              Projet?    @relation(fields: [projetId], references: [id])
+  type                TypeRegle
+  libelle             String
+  description         String?
+  conditions          Json // arbre de conditions simples/combinées — voir src/lib/rules-engine
+  version             Int        @default(1)
+  actif               Boolean    @default(true)
+  versionPrecedenteId String?    @unique
+  versionPrecedente   Regle?     @relation("HistoriqueRegle", fields: [versionPrecedenteId], references: [id])
+  versionSuivante     Regle?     @relation("HistoriqueRegle")
+  creeParId           String
+  creePar             User       @relation("RegleCreePar", fields: [creeParId], references: [id])
+  dateCreation        DateTime   @default(now())
+  dateFin             DateTime?
+  anomalies           Anomalie[]
+
+  @@map("regles")
+}
+
+// Anomalie détectée sur une pièce (ou globalement sur le projet si pieceId est nul).
+model Anomalie {
+  id                String           @id @default(cuid())
+  projetId          String
+  projet            Projet           @relation(fields: [projetId], references: [id])
+  pieceId           String?
+  piece             Piece?           @relation(fields: [pieceId], references: [id])
+  type              TypeAnomalie
+  regleId           String?
+  regle             Regle?           @relation(fields: [regleId], references: [id])
+  regleVersion      Int?
+  detailAutomatique String
+  detailOperateur   String?
+  statutValidation  StatutValidation @default(EN_ATTENTE)
+  detecteeLe        DateTime         @default(now())
+  valideeLe         DateTime?
+
+  @@map("anomalies")
+}
+
+// Modèle de rapport : un défaut global (dossierId nul) ou une surcharge par dossier.
+model RapportTemplate {
+  id        String    @id @default(cuid())
+  dossierId String?   @unique
+  dossier   Dossier?  @relation(fields: [dossierId], references: [id])
+  nom       String
+  structure Json // sections à inclure, ordre, graphiques — voir src/lib/reports
+  parDefaut Boolean   @default(false)
+  creeLe    DateTime  @default(now())
+  rapports  Rapport[]
+
+  @@map("rapport_templates")
+}
+
+model Rapport {
+  id             String           @id @default(cuid())
+  dossierId      String?
+  dossier        Dossier?         @relation(fields: [dossierId], references: [id])
+  projetId       String?
+  projet         Projet?          @relation(fields: [projetId], references: [id])
+  templateId     String?
+  template       RapportTemplate? @relation(fields: [templateId], references: [id])
+  version        Int              @default(1)
+  contenu        Json // contenu structuré utilisé pour générer web/PDF/Excel
+  statut         StatutRapport    @default(BROUILLON)
+  genereParId    String
+  generePar      User             @relation("RapportGenerePar", fields: [genereParId], references: [id])
+  dateGeneration DateTime         @default(now())
+
+  @@map("rapports")
+}
+
+// Paramètres configurables par l'administrateur (ex. durée de conservation des données, en jours).
+model Parametre {
+  cle    String @id
+  valeur String
+
+  @@map("parametres")
+}

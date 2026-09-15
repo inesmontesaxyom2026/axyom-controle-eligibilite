@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# stockage local des pièces déposées (dev uniquement — voir src/lib/storage)
+/storage-local/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

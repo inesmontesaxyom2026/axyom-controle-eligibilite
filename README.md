@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Outil de contrôle interne de l'éligibilité — Axyom
 
-## Getting Started
+Application web interne permettant d'externaliser le contrôle de l'éligibilité des dépenses
+d'organisations (ONG, associations, structures de coopération) financées par des bailleurs
+internationaux. Voir [`ARCHITECTURE.md`](./ARCHITECTURE.md) pour une explication détaillée,
+écrite pour une personne pas nécessairement technique.
 
-First, run the development server:
+Ce projet correspond à la Phase A (MVP) décrite dans le document de cadrage
+`Prompt_developpement_complet.md` : pipeline complet (dépôt → extraction → règles → anomalies →
+validation → restitution), exécutable en local, sur 2 profils / 2 dossiers × 2 projets.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Démarrage rapide (première installation)
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Prérequis** : Node.js 20+ (déjà installé si vous lisez ceci depuis ce poste), un compte gratuit
+sur [neon.tech](https://neon.tech) pour la base de données, et une clé API sur
+[console.anthropic.com](https://console.anthropic.com) pour l'extraction des pièces.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. **Copier la configuration** : dupliquez `.env.example` en `.env` et remplissez :
+   - `DATABASE_URL` : l'URL de connexion fournie par Neon (créez un projet, région UE la plus proche
+     de la Belgique — voir `.env.example` pour le détail).
+   - `ANTHROPIC_API_KEY` : votre clé API Anthropic.
+   - `NEXTAUTH_SECRET` : une valeur aléatoire (voir le commentaire dans `.env.example` pour la
+     générer).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+2. **Installer les dépendances** :
+   ```bash
+   npm install
+   ```
 
-## Learn More
+3. **Créer les tables dans la base de données** :
+   ```bash
+   npx prisma migrate dev --name init
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+4. **Charger un jeu de données de test** (2 profils, 2 dossiers × 2 projets, comptes de test) :
+   ```bash
+   npx prisma db seed
+   ```
+   Cela affiche dans le terminal les identifiants de connexion à utiliser (à changer avant tout
+   usage réel).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+5. **Lancer l'application** :
+   ```bash
+   npm run dev
+   ```
+   puis ouvrir [http://localhost:3000](http://localhost:3000).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Commandes utiles
 
-## Deploy on Vercel
+| Commande | Effet |
+|---|---|
+| `npm run dev` | Lance l'application en local (rechargement automatique). |
+| `npm run build` puis `npm run start` | Construit puis lance une version de production locale. |
+| `npm run lint` | Vérifie la qualité du code. |
+| `npm test` | Exécute les tests automatisés (moteur de règles, extraction). |
+| `npx prisma studio` | Interface graphique pour explorer/modifier directement les données. |
+| `npx prisma migrate dev --name <description>` | Applique un changement du modèle de données (`prisma/schema.prisma`). |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Où trouver quoi
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `prisma/schema.prisma` : modèle de données (toutes les entités : dossiers, projets, pièces, règles, anomalies, rapports…).
+- `prisma/seed.ts` : jeu de données de test.
+- `src/app/` : les pages de l'application et les points d'API.
+- `src/lib/` : la logique métier (extraction, moteur de règles, rapports, stockage, authentification).
+- `src/components/` : les éléments d'interface réutilisables.
+
+Pour une explication de l'architecture destinée à une personne non technique, voir
+[`ARCHITECTURE.md`](./ARCHITECTURE.md).
